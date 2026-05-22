@@ -10,7 +10,31 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-app.use(cors({ origin: process.env.FRONTEND_URL || "*", credentials: true }));
+const normalizeOrigin = (value) => value.replace(/\/+$/, "");
+
+const allowedOrigins = (process.env.FRONTEND_URL || "")
+  .split(",")
+  .map((origin) => origin.trim())
+  .filter(Boolean)
+  .map(normalizeOrigin);
+
+const corsOptions = {
+  credentials: true,
+  origin: (origin, callback) => {
+    // Allow non-browser tools or same-origin server-to-server calls.
+    if (!origin) return callback(null, true);
+    if (!allowedOrigins.length) return callback(null, true);
+
+    const normalizedRequestOrigin = normalizeOrigin(origin);
+    if (allowedOrigins.includes(normalizedRequestOrigin)) {
+      return callback(null, true);
+    }
+
+    return callback(new Error("Not allowed by CORS"));
+  },
+};
+
+app.use(cors(corsOptions));
 app.use(express.json({ limit: "5mb" }));
 
 app.get("/health", (_req, res) => {
