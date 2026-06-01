@@ -4,12 +4,45 @@ const { requireAuth } = require("../middleware/auth");
 
 const router = express.Router();
 
+const parseDateBoundary = (value, endOfDay = false) => {
+  if (!value) return null;
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+
+  if (endOfDay) {
+    date.setHours(23, 59, 59, 999);
+  } else {
+    date.setHours(0, 0, 0, 0);
+  }
+
+  return date;
+};
+
 // GET all tasks for logged-in user
 router.get("/", requireAuth, async (req, res) => {
   try {
-    const tasks = await Task.find({ userId: req.user.userId }).sort({ updatedAt: -1 });
+    const { dateFrom, dateTo, dateField = "dueDate" } = req.query;
+    const allowedDateFields = ["createdAt", "dueDate"];
+    const filterDateField = allowedDateFields.includes(dateField) ? dateField : "dueDate";
+    const startDate = parseDateBoundary(dateFrom);
+    const endDate = parseDateBoundary(dateTo, true);
+    const query = { userId: req.user.userId };
+
+    if (startDate || endDate) {
+      query[filterDateField] = {};
+      if (startDate) query[filterDateField].$gte = startDate;
+      if (endDate) query[filterDateField].$lte = endDate;
+    }
+
+    const tasks = await Task.find(query).sort({ updatedAt: -1 });
     return res.json({
       message: "Tasks fetched successfully",
+      filters: {
+        dateField: filterDateField,
+        dateFrom: startDate,
+        dateTo: endDate,
+      },
       data: tasks.map((task) => ({
         id: task._id.toString(),
         title: task.title,
