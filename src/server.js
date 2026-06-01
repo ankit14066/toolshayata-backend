@@ -5,6 +5,7 @@ const { connectDatabase } = require("./config/db");
 const authRoutes = require("./routes/auth");
 const workflowRoutes = require("./routes/workflows");
 const convertRoutes = require("./routes/convert");
+const taskRoutes = require("./routes/tasks");
 dotenv.config();
 
 const app = express();
@@ -44,6 +45,7 @@ app.get("/health", (_req, res) => {
 app.use("/auth", authRoutes);
 app.use("/workflows", workflowRoutes);
 app.use("/convert", convertRoutes);
+app.use("/tasks", taskRoutes);
 app.use((err, _req, res, _next) => {
   res.status(500).json({ message: "Server error", error: String(err) });
 });
