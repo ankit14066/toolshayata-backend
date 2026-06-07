@@ -15,7 +15,10 @@ async function connectDatabase() {
   await mongoose.connect(mongodbUri, {
     dbName: process.env.MONGODB_DB || "tools_app",
   });
+
   isConnected = true;
+  // eslint-disable-next-line no-console
+  console.log("MongoDB connected");
 }
 
 module.exports = { connectDatabase };
