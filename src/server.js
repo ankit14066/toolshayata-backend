@@ -7,7 +7,7 @@ const workflowRoutes = require("./routes/workflows");
 const convertRoutes = require("./routes/convert");
 const taskRoutes = require("./routes/tasks");
 const feedbackRoutes = require("./routes/feedback");
-
+const ocrRoutes = require("./routes/ocr");
 dotenv.config();
 
 const app = express();
@@ -49,6 +49,7 @@ app.use("/workflows", workflowRoutes);
 app.use("/convert", convertRoutes);
 app.use("/tasks", taskRoutes);
 app.use("/feedback", feedbackRoutes);
+app.use("/api/ocr", ocrRoutes);
 app.use((err, _req, res, _next) => {
   res.status(500).json({ message: "Server error", error: String(err) });
 });
