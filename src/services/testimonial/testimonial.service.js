@@ -16,12 +16,16 @@ async function listTestimonialsService(_req, res, next) {
 
 async function createTestimonialService(req, res, next) {
   try {
-    const { name, profession, company = "", quote, imageUrl = "", rating = 5, featured = true } = req.body;
-    if (!name || !profession || !quote) {
+    const { name, profession, company = "", quote, description, imageUrl = "", rating = 5, featured = true } = req.body;
+    
+    // Map description from frontend to quote
+    const finalQuote = quote || description;
+
+    if (!name || !profession || !finalQuote) {
       return res.status(400).json({ message: "Name, profession and quote are required." });
     }
 
-    const item = await createTestimonial({ name, profession, company, quote, imageUrl, rating, featured });
+    const item = await createTestimonial({ name, profession, company, quote: finalQuote, imageUrl, rating, featured });
     return res.status(201).json({ message: "Testimonial created successfully", data: item });
   } catch (error) {
     return next(error);

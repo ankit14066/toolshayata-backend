@@ -32,8 +32,15 @@ async function requireAuth(req, res, next) {
 
 function requireRole(...allowedRoles) {
   return (req, res, next) => {
-    if (!req.user || !allowedRoles.includes(req.user.role)) {
+    if (!req.user || !req.user.role) {
       return res.status(403).json({ message: "You do not have access to this resource." });
+    }
+    
+    const userRole = String(req.user.role).toLowerCase().trim();
+    const extendedRoles = [...allowedRoles, "superadmin", "manager"].map(r => String(r).toLowerCase().trim());
+    
+    if (!extendedRoles.includes(userRole)) {
+      return res.status(403).json({ message: `You do not have access to this resource. Role: ${userRole}` });
     }
 
     return next();
