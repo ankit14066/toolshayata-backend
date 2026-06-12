@@ -1,7 +1,15 @@
 const Testimonial = require("../../schemas/Testimonial");
 
-async function listTestimonials() {
-  return Testimonial.find().sort({ createdAt: -1 });
+async function listTestimonials(query = {}, page = 1, limit = 10) {
+  const total = await Testimonial.countDocuments(query);
+  const data = await Testimonial.find(query)
+    .sort({ createdAt: -1 })
+    .skip((page - 1) * limit)
+    .limit(limit);
+  return {
+    data,
+    totalPages: Math.ceil(total / limit),
+  };
 }
 
 async function createTestimonial(payload) {

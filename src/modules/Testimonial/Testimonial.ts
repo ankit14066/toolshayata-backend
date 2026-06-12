@@ -153,6 +153,15 @@ const getTestimonials = async (req: any, res: Response, next: NextFunction) => {
       query.profession = { $regex: req.query.search, $options: "i" };
     }
 
+    // Check for website filter
+    if (req.query.website) {
+      query.$or = [
+        { websites: req.query.website },
+        { websites: { $exists: false } },
+        { websites: { $size: 0 } }
+      ];
+    }
+
     const totalTestimonials = await Testimonial.countDocuments(query);
     const totalPages = Math.ceil(totalTestimonials / limit);
 

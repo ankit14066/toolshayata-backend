@@ -23,6 +23,7 @@ const testimonialCreateValidation = Joi.object({
   }),
   profession: Joi.string(),
   image: Joi.any(),
+  websites: Joi.array().items(Joi.string()).optional(),
   description: Joi.string().required().trim().min(10).max(500).messages({
     "any.required": "Description is required",
     "string.empty": "Description is required",

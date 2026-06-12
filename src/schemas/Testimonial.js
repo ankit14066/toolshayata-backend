@@ -9,6 +9,7 @@ const testimonialSchema = new mongoose.Schema(
     imageUrl: { type: String, default: "" },
     rating: { type: Number, min: 1, max: 5, default: 5 },
     featured: { type: Boolean, default: true },
+    websites: [{ type: String }],
   },
   { timestamps: true }
 );
