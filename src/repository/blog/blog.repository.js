@@ -18,8 +18,13 @@ async function listAdminBlogs() {
 }
 
 async function getBlogBySlugOrId(slugOrId) {
+  const mongoose = require("mongoose");
+  const orQuery = [{ slug: slugOrId }];
+  if (mongoose.Types.ObjectId.isValid(slugOrId)) {
+    orQuery.push({ _id: slugOrId });
+  }
   return Blog.findOne({
-    $or: [{ slug: slugOrId }, { _id: slugOrId }],
+    $or: orQuery,
   }).populate("createdBy", "_id name email");
 }
 
