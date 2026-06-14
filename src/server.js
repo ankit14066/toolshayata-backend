@@ -12,6 +12,7 @@ const dashboardRoutes = require("./routes/dashboard");
 const blogRoutes = require("./routes/blogs");
 const testimonialRoutes = require("./routes/testimonials");
 const userRoutes = require("./routes/users");
+const websiteRoutes = require("./routes/websites");
 
 dotenv.config();
 
@@ -57,6 +58,7 @@ app.use("/dashboard", dashboardRoutes);
 app.use("/blogs", blogRoutes);
 app.use("/testimonials", testimonialRoutes);
 app.use("/users", userRoutes);
+app.use("/websites", websiteRoutes);
 
 app.use((err, _req, res, _next) => {
   res.status(500).json({ message: "Server error", error: String(err) });
