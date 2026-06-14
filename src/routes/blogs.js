@@ -4,6 +4,7 @@ const {
   createBlogService,
   deleteBlogService,
   getBlogService,
+  getBlogCountService,
   listAdminBlogsService,
   listPublicBlogsService,
   updateBlogService,
@@ -16,6 +17,7 @@ router.get("/", listPublicBlogsService);
 router.get("/get", listPublicBlogsService);
 router.get("/:slugOrId", getBlogService);
 router.post("/", requireAuth, requireRole("admin", "editor"), createBlogService);
+router.post("/status/counts", requireAuth, getBlogCountService);
 router.put("/:id", requireAuth, requireRole("admin", "editor"), updateBlogService);
 router.delete("/:id", requireAuth, requireRole("admin", "editor"), deleteBlogService);
 router.post("/:id", requireAuth, requireRole("admin", "editor"), deleteBlogService);
