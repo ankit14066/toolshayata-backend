@@ -6,9 +6,19 @@ const { requireAuth } = require("../middleware/auth");
 
 const router = express.Router();
 
+// Helper: async JWT sign (non-blocking)
+const signToken = (payload) =>
+  new Promise((resolve, reject) =>
+    jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: "7d" }, (err, token) =>
+      err ? reject(err) : resolve(token)
+    )
+  );
+
+// ─── REGISTER ────────────────────────────────────────────────────────────────
 router.post("/register", async (req, res) => {
   try {
     const { name, email, password } = req.body;
+
     if (!name || !email || !password) {
       return res.status(400).json({ message: "Name, email and password are required." });
     }
@@ -18,13 +28,20 @@ router.post("/register", async (req, res) => {
       return res.status(409).json({ message: "User already exists with this email." });
     }
 
-    const passwordHash = await bcrypt.hash(password, 12);
-    const user = await User.create({ name, email: String(email).toLowerCase(), passwordHash });
-    const token = jwt.sign(
-      { userId: user._id.toString(), email: user.email, name: user.name },
-      process.env.JWT_SECRET,
-      { expiresIn: "7d" }
-    );
+    // Cost factor 10 — secure aur ~4x faster than 12
+    const passwordHash = await bcrypt.hash(password, 10);
+
+    const user = await User.create({
+      name,
+      email: String(email).toLowerCase(),
+      passwordHash,
+    });
+
+    const token = await signToken({
+      userId: user._id.toString(),
+      email: user.email,
+      name: user.name,
+    });
 
     return res.status(201).json({
       message: "Registration successful",
@@ -38,24 +55,31 @@ router.post("/register", async (req, res) => {
   }
 });
 
+// ─── LOGIN ────────────────────────────────────────────────────────────────────
 router.post("/login", async (req, res) => {
   try {
     const { username, password } = req.body;
+
     if (!username || !password) {
       return res.status(400).json({ message: "Email and password are required." });
     }
 
+    // Email index hone se yeh query fast hogi (User model mein index zaroor lagao)
     const user = await User.findOne({ email: String(username).toLowerCase() });
-    if (!user) return res.status(401).json({ message: "Invalid credentials." });
+    if (!user) {
+      return res.status(401).json({ message: "Invalid credentials." });
+    }
 
     const isValid = await bcrypt.compare(password, user.passwordHash);
-    if (!isValid) return res.status(401).json({ message: "Invalid credentials." });
+    if (!isValid) {
+      return res.status(401).json({ message: "Invalid credentials." });
+    }
 
-    const token = jwt.sign(
-      { userId: user._id.toString(), email: user.email, name: user.name },
-      process.env.JWT_SECRET,
-      { expiresIn: "7d" }
-    );
+    const token = await signToken({
+      userId: user._id.toString(),
+      email: user.email,
+      name: user.name,
+    });
 
     return res.json({
       message: "Login successful",
@@ -69,10 +93,13 @@ router.post("/login", async (req, res) => {
   }
 });
 
+// ─── ME ───────────────────────────────────────────────────────────────────────
 router.post("/me", requireAuth, async (req, res) => {
   try {
     const user = await User.findById(req.user.userId).select("_id name email");
-    if (!user) return res.status(404).json({ message: "User not found" });
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
 
     return res.json({
       message: "User fetched successfully",
