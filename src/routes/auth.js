@@ -2,6 +2,7 @@ const express = require("express");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const User = require("../models/User");
+const { ensureDefaultBucket } = require("../services/taskBuckets");
 const { requireAuth } = require("../middleware/auth");
 
 const router = express.Router();
@@ -36,6 +37,8 @@ router.post("/register", async (req, res) => {
       email: String(email).toLowerCase(),
       passwordHash,
     });
+
+    await ensureDefaultBucket(user._id);
 
     const token = await signToken({
       userId: user._id.toString(),

@@ -6,6 +6,7 @@ const authRoutes = require("./routes/auth");
 const workflowRoutes = require("./routes/workflows");
 const convertRoutes = require("./routes/convert");
 const taskRoutes = require("./routes/tasks");
+const bucketRoutes = require("./routes/buckets");
 const feedbackRoutes = require("./routes/feedback");
 const ocrRoutes = require("./routes/ocr");
 dotenv.config();
@@ -48,6 +49,7 @@ app.use("/auth", authRoutes);
 app.use("/workflows", workflowRoutes);
 app.use("/convert", convertRoutes);
 app.use("/tasks", taskRoutes);
+app.use("/buckets", bucketRoutes);
 app.use("/feedback", feedbackRoutes);
 app.use("/api/ocr", ocrRoutes);
 app.use((err, _req, res, _next) => {

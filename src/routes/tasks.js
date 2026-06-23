@@ -1,39 +1,45 @@
 const express = require("express");
 const Task = require("../models/Task");
+const TaskBucket = require("../models/TaskBucket");
 const { requireAuth } = require("../middleware/auth");
+const {
+  applyTaskDateFilter,
+  ensureDefaultBucket,
+  getActiveTaskQuery,
+  isValidObjectId,
+  taskResponse,
+} = require("../services/taskBuckets");
 
 const router = express.Router();
-
-const parseDateBoundary = (value, endOfDay = false) => {
-  if (!value) return null;
-
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return null;
-
-  if (endOfDay) {
-    date.setHours(23, 59, 59, 999);
-  } else {
-    date.setHours(0, 0, 0, 0);
-  }
-
-  return date;
-};
 
 // GET all tasks for logged-in user
 router.get("/", requireAuth, async (req, res) => {
   try {
-    const { dateFrom, dateTo, dateField = "dueDate" } = req.query;
-    const allowedDateFields = ["createdAt", "dueDate"];
-    const filterDateField = allowedDateFields.includes(dateField) ? dateField : "dueDate";
-    const startDate = parseDateBoundary(dateFrom);
-    const endDate = parseDateBoundary(dateTo, true);
-    const query = { userId: req.user.userId };
+    const { dateFrom, dateTo, dateField = "dueDate", bucketId } = req.query;
+    
+    // Ensure default bucket exists and migrate orphaned tasks
+    await ensureDefaultBucket(req.user.userId);
 
-    if (startDate || endDate) {
-      query[filterDateField] = {};
-      if (startDate) query[filterDateField].$gte = startDate;
-      if (endDate) query[filterDateField].$lte = endDate;
+    const query = getActiveTaskQuery({ userId: req.user.userId });
+
+    if (bucketId) {
+      if (!isValidObjectId(bucketId)) {
+        return res.status(400).json({ message: "Invalid bucket id." });
+      }
+
+      const bucketExists = await TaskBucket.exists({ _id: bucketId, userId: req.user.userId });
+      if (!bucketExists) {
+        return res.status(404).json({ message: "Specified bucket not found." });
+      }
+
+      query.bucketId = bucketId;
     }
+
+    const { filterDateField, startDate, endDate } = applyTaskDateFilter(query, {
+      dateFrom,
+      dateTo,
+      dateField,
+    });
 
     const tasks = await Task.find(query).sort({ updatedAt: -1 });
     return res.json({
@@ -42,17 +48,9 @@ router.get("/", requireAuth, async (req, res) => {
         dateField: filterDateField,
         dateFrom: startDate,
         dateTo: endDate,
+        bucketId: bucketId || null,
       },
-      data: tasks.map((task) => ({
-        id: task._id.toString(),
-        title: task.title,
-        description: task.description,
-        status: task.status,
-        priority: task.priority,
-        dueDate: task.dueDate,
-        createdAt: task.createdAt,
-        updatedAt: task.updatedAt,
-      })),
+      data: tasks.map(taskResponse),
     });
   } catch (error) {
     return res.status(500).json({ message: "Failed to fetch tasks", error: String(error) });
@@ -62,13 +60,29 @@ router.get("/", requireAuth, async (req, res) => {
 // POST create task
 router.post("/", requireAuth, async (req, res) => {
   try {
-    const { title, description, status, priority, dueDate } = req.body;
-    if (!title) {
+    const { title, description, status, priority, dueDate, bucketId } = req.body;
+    if (!title || !String(title).trim()) {
       return res.status(400).json({ message: "Task title is required." });
+    }
+
+    let finalBucketId = bucketId;
+    if (!finalBucketId) {
+      const defaultBucket = await ensureDefaultBucket(req.user.userId);
+      finalBucketId = defaultBucket._id;
+    } else {
+      if (!isValidObjectId(finalBucketId)) {
+        return res.status(400).json({ message: "Invalid bucket id." });
+      }
+
+      const bucketExists = await TaskBucket.findOne({ _id: bucketId, userId: req.user.userId });
+      if (!bucketExists) {
+        return res.status(404).json({ message: "Specified bucket not found." });
+      }
     }
 
     const task = await Task.create({
       userId: req.user.userId,
+      bucketId: finalBucketId,
       title: String(title).trim(),
       description: String(description || "").trim(),
       status: status || "todo",
@@ -78,16 +92,7 @@ router.post("/", requireAuth, async (req, res) => {
 
     return res.status(201).json({
       message: "Task created successfully",
-      data: {
-        id: task._id.toString(),
-        title: task.title,
-        description: task.description,
-        status: task.status,
-        priority: task.priority,
-        dueDate: task.dueDate,
-        createdAt: task.createdAt,
-        updatedAt: task.updatedAt,
-      },
+      data: taskResponse(task),
     });
   } catch (error) {
     return res.status(500).json({ message: "Failed to create task", error: String(error) });
@@ -97,13 +102,29 @@ router.post("/", requireAuth, async (req, res) => {
 // PUT update task (including drag and drop status updates)
 router.put("/:taskId", requireAuth, async (req, res) => {
   try {
-    const { title, description, status, priority, dueDate } = req.body;
+    const { title, description, status, priority, dueDate, bucketId } = req.body;
+    if (!isValidObjectId(req.params.taskId)) {
+      return res.status(400).json({ message: "Invalid task id." });
+    }
+
     const updateData = {};
     if (title !== undefined) updateData.title = String(title).trim();
     if (description !== undefined) updateData.description = String(description || "").trim();
     if (status !== undefined) updateData.status = status;
     if (priority !== undefined) updateData.priority = priority;
     if (dueDate !== undefined) updateData.dueDate = dueDate;
+
+    if (bucketId !== undefined) {
+      if (!isValidObjectId(bucketId)) {
+        return res.status(400).json({ message: "Invalid bucket id." });
+      }
+
+      const bucketExists = await TaskBucket.findOne({ _id: bucketId, userId: req.user.userId });
+      if (!bucketExists) {
+        return res.status(404).json({ message: "Specified bucket not found." });
+      }
+      updateData.bucketId = bucketId;
+    }
 
     const task = await Task.findOneAndUpdate(
       { _id: req.params.taskId, userId: req.user.userId },
@@ -117,16 +138,7 @@ router.put("/:taskId", requireAuth, async (req, res) => {
 
     return res.json({
       message: "Task updated successfully",
-      data: {
-        id: task._id.toString(),
-        title: task.title,
-        description: task.description,
-        status: task.status,
-        priority: task.priority,
-        dueDate: task.dueDate,
-        createdAt: task.createdAt,
-        updatedAt: task.updatedAt,
-      },
+      data: taskResponse(task),
     });
   } catch (error) {
     return res.status(500).json({ message: "Failed to update task", error: String(error) });
@@ -136,6 +148,10 @@ router.put("/:taskId", requireAuth, async (req, res) => {
 // DELETE task
 router.delete("/:taskId", requireAuth, async (req, res) => {
   try {
+    if (!isValidObjectId(req.params.taskId)) {
+      return res.status(400).json({ message: "Invalid task id." });
+    }
+
     const deleted = await Task.findOneAndDelete({ _id: req.params.taskId, userId: req.user.userId });
     if (!deleted) {
       return res.status(404).json({ message: "Task not found." });
