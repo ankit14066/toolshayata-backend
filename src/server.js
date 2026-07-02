@@ -12,6 +12,7 @@ const ocrRoutes = require("./routes/ocr");
 const attachmentsRoutes = require("./routes/attachments");
 // start scheduled jobs
 require("./jobs/futureTasksCron");
+require("./jobs/cleanupFileSharesCron");
 dotenv.config();
 
 const app = express();
@@ -56,6 +57,8 @@ app.use("/api/tasks", attachmentsRoutes);
 app.use("/buckets", bucketRoutes);
 app.use("/feedback", feedbackRoutes);
 app.use("/api/ocr", ocrRoutes);
+const fileShareRoutes = require("./routes/fileShare");
+app.use('/', fileShareRoutes);
 app.use((err, _req, res, _next) => {
   res.status(500).json({ message: "Server error", error: String(err) });
 });
