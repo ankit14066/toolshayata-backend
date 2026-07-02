@@ -98,4 +98,33 @@ module.exports = {
   isValidObjectId,
   parseDateBoundary,
   taskResponse,
+  // Transition any tasks with status 'future' whose dueDate <= now to 'todo'
+  transitionFutureTasksToTodoIfDue: async ({ userId } = {}) => {
+    try {
+      const query = { status: "future", dueDate: { $exists: true, $ne: null } };
+      if (userId) query.userId = userId;
+
+      const now = new Date();
+      // Use UTC comparison — update tasks with dueDate <= now
+      query.dueDate.$lte = now;
+
+      const tasksToUpdate = await Task.find(query).select("_id status title userId dueDate");
+      if (!tasksToUpdate.length) return { updated: 0 };
+
+      const ids = tasksToUpdate.map((t) => t._id);
+      await Task.updateMany({ _id: { $in: ids } }, { $set: { status: "todo" } });
+
+      // Log transitions
+      tasksToUpdate.forEach((t) => {
+        // eslint-disable-next-line no-console
+        console.log(`[Future->Todo] task=${t._id} title="${t.title}" userId=${t.userId} dueDate=${t.dueDate.toISOString()} at=${new Date().toISOString()}`);
+      });
+
+      return { updated: ids.length, ids };
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error("Error transitioning future tasks:", err);
+      return { updated: 0, error: String(err) };
+    }
+  },
 };

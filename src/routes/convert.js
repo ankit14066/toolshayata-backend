@@ -64,17 +64,106 @@ function getPythonEnv() {
 
 function convertPdfToDocxLayout(pdfPath, docxPath) {
   const script = `
-import sys
+import sys, zipfile, io, os
 from pdf2docx import Converter
 
-pdf_path = sys.argv[1]
+pdf_path  = sys.argv[1]
 docx_path = sys.argv[2]
 
+# ── Step 1: Convert PDF -> DOCX ──────────────────────────────────────────
 converter = Converter(pdf_path)
 try:
     converter.convert(docx_path, start=0, end=None, multi_processing=False)
 finally:
     converter.close()
+
+# ── Step 2: Compress images inside the DOCX (ZIP) ───────────────────────
+# DOCX = ZIP. Walk word/media/, compress each image, write back same name.
+
+MAX_DIM = 1200   # max width or height in pixels  (raise for sharper images)
+JPEG_Q  = 65     # JPEG quality 0-95              (raise for better quality)
+IMAGE_EXTS = (".png", ".jpg", ".jpeg", ".bmp", ".gif", ".tiff", ".tif")
+
+# Try PIL first, fall back to fitz (PyMuPDF) which is bundled
+try:
+    from PIL import Image as _PILImage
+    _USE_PIL = True
+except ImportError:
+    _USE_PIL = False
+    try:
+        import fitz as _fitz  # PyMuPDF
+        _USE_FITZ = True
+    except ImportError:
+        _USE_FITZ = False
+
+def compress_image_bytes(raw_bytes):
+    """Return JPEG-compressed bytes, or raw_bytes if smaller/error."""
+    try:
+        if _USE_PIL:
+            from PIL import Image
+            img = Image.open(io.BytesIO(raw_bytes))
+            if img.mode in ("RGBA", "LA", "P"):
+                bg = Image.new("RGB", img.size, (255, 255, 255))
+                if img.mode == "P":
+                    img = img.convert("RGBA")
+                if img.mode in ("RGBA", "LA"):
+                    bg.paste(img, mask=img.split()[-1])
+                else:
+                    bg.paste(img)
+                img = bg
+            else:
+                img = img.convert("RGB")
+            w, h = img.size
+            if w > MAX_DIM or h > MAX_DIM:
+                ratio = min(MAX_DIM / w, MAX_DIM / h)
+                img = img.resize(
+                    (max(1, int(w * ratio)), max(1, int(h * ratio))),
+                    Image.LANCZOS,
+                )
+            buf = io.BytesIO()
+            img.save(buf, format="JPEG", quality=JPEG_Q, optimize=True)
+            out = buf.getvalue()
+
+        elif _USE_FITZ:
+            import fitz
+            pix = fitz.Pixmap(raw_bytes)
+            if pix.alpha:
+                pix = fitz.Pixmap(fitz.csRGB, pix)  # remove alpha
+            w, h = pix.width, pix.height
+            if w > MAX_DIM or h > MAX_DIM:
+                ratio = min(MAX_DIM / w, MAX_DIM / h)
+                pix = pix.resize(
+                    max(1, int(w * ratio)),
+                    max(1, int(h * ratio)),
+                )
+            out = pix.tobytes("jpeg", jpg_quality=JPEG_Q)
+
+        else:
+            return raw_bytes  # no image lib available
+
+        return out if len(out) < len(raw_bytes) else raw_bytes
+
+    except Exception:
+        return raw_bytes  # keep original on any error
+
+tmp_out = docx_path + ".tmp"
+
+with zipfile.ZipFile(docx_path, "r") as zin, \
+     zipfile.ZipFile(tmp_out, "w",
+                     compression=zipfile.ZIP_DEFLATED,
+                     compresslevel=9) as zout:
+    for item in zin.infolist():
+        raw = zin.read(item.filename)
+        low = item.filename.lower()
+
+        if low.startswith("word/media/") and any(low.endswith(e) for e in IMAGE_EXTS):
+            raw = compress_image_bytes(raw)
+
+        zout.writestr(item, raw)
+
+os.replace(tmp_out, docx_path)
+before = os.path.getsize(docx_path)
+print(f"Done. Final size: {before/1024/1024:.2f} MB -> {docx_path}")
 `;
   const tmpScript = pdfPath + "_convert.py";
   fs.writeFileSync(tmpScript, script);
@@ -264,15 +353,87 @@ router.post("/pdf-to-word", upload.single("file"), async (req, res) => {
   }
 });
 
-router.post("/word-to-pdf", upload.single("file"), (req, res) => {
+// ─────────────────────────────────────────────────────────────────────────────
+// ROUTE: POST /pdf-to-word/preview
+// Converts the uploaded PDF → DOCX (same pipeline), then DOCX → PDF via
+// LibreOffice, and streams the resulting PDF so the browser can render it as
+// an inline preview. No file is permanently stored.
+// ─────────────────────────────────────────────────────────────────────────────
+
+router.post("/pdf-to-word/preview", upload.single("file"), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: "No file uploaded" });
 
-  const inputPath = path.resolve(req.file.path);
-  const outputDir = path.resolve(uploadDir);
+  const inputPath  = path.resolve(req.file.path);
+  const docxPath   = inputPath + ".docx";
+  const previewDir = path.resolve(uploadDir);
+
+  try {
+    // Step 1: PDF → DOCX (existing converter)
+    convertPdfToDocxLayout(inputPath, docxPath);
+
+    // Step 2: DOCX → PDF via LibreOffice (for browser-renderable preview)
+    await new Promise((resolve, reject) => {
+      const cmd = `${LIBRE_OFFICE_COMMAND} --headless --convert-to pdf --outdir "${previewDir}" "${docxPath}"`;
+      exec(cmd, (err, _stdout, stderr) => {
+        if (err) {
+          console.error("LibreOffice preview error:", stderr);
+          reject(new Error("Preview PDF generation failed"));
+        } else {
+          resolve();
+        }
+      });
+    });
+
+    const previewPdfPath = path.join(previewDir, path.basename(docxPath, ".docx") + ".pdf");
+
+    if (!fs.existsSync(previewPdfPath)) {
+      return res.status(500).json({ error: "Preview PDF not generated" });
+    }
+
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", "inline; filename=\"preview.pdf\"");
+    res.setHeader("Access-Control-Expose-Headers", "Content-Disposition");
+
+    const stream = fs.createReadStream(previewPdfPath);
+    stream.pipe(res);
+
+    const cleanup = () => {
+      [inputPath, docxPath, previewPdfPath].forEach((f) => {
+        try { fs.existsSync(f) && fs.unlinkSync(f); } catch (_) {}
+      });
+    };
+
+    stream.on("end", cleanup);
+    stream.on("error", cleanup);
+
+  } catch (err) {
+    console.error("PDF→preview error:", err);
+    [inputPath, docxPath].forEach((f) => {
+      try { fs.existsSync(f) && fs.unlinkSync(f); } catch (_) {}
+    });
+    res.status(500).json({ error: "Preview generation failed", detail: err.message });
+  }
+});
+
+router.post("/word-to-pdf", upload.single("file"), (req, res) => {
+
+  if (!req.file) return res.status(400).json({ error: "No file uploaded" });
+
+  const tempPath   = path.resolve(req.file.path);
+  const inputPath  = tempPath + ".docx";          // LibreOffice needs .docx extension
+  const outputDir  = path.resolve(uploadDir);
   const originalName = path.basename(
     req.file.originalname,
     path.extname(req.file.originalname)
   );
+
+  // Rename multer's extension-less temp file so LibreOffice recognises the format
+  try {
+    fs.renameSync(tempPath, inputPath);
+  } catch (renameErr) {
+    console.error("Rename error:", renameErr);
+    return res.status(500).json({ error: "Failed to prepare file for conversion" });
+  }
 
   const cmd = `${LIBRE_OFFICE_COMMAND} --headless --convert-to pdf --outdir "${outputDir}" "${inputPath}"`;
 
@@ -280,12 +441,15 @@ router.post("/word-to-pdf", upload.single("file"), (req, res) => {
     if (err) {
       console.error("LibreOffice error:", stderr);
       fs.existsSync(inputPath) && fs.unlinkSync(inputPath);
-      return res.status(500).json({ error: "Conversion failed" });
+      return res.status(500).json({ error: "Conversion failed", detail: stderr });
     }
 
-    const pdfPath = path.join(outputDir, path.basename(inputPath) + ".pdf");
+    // LibreOffice outputs: <basename-without-ext>.pdf  → e.g. abc123.pdf
+    const pdfBasename = path.basename(inputPath, ".docx") + ".pdf";
+    const pdfPath = path.join(outputDir, pdfBasename);
 
     if (!fs.existsSync(pdfPath)) {
+      console.error("PDF not found at:", pdfPath, "stdout:", stdout, "stderr:", stderr);
       fs.existsSync(inputPath) && fs.unlinkSync(inputPath);
       return res.status(500).json({ error: "PDF not generated" });
     }
@@ -301,12 +465,12 @@ router.post("/word-to-pdf", upload.single("file"), (req, res) => {
 
     stream.on("end", () => {
       fs.existsSync(inputPath) && fs.unlinkSync(inputPath);
-      fs.existsSync(pdfPath) && fs.unlinkSync(pdfPath);
+      fs.existsSync(pdfPath)   && fs.unlinkSync(pdfPath);
     });
 
     stream.on("error", () => {
       fs.existsSync(inputPath) && fs.unlinkSync(inputPath);
-      fs.existsSync(pdfPath) && fs.unlinkSync(pdfPath);
+      fs.existsSync(pdfPath)   && fs.unlinkSync(pdfPath);
     });
   });
 });

@@ -11,10 +11,20 @@ const {
 } = require("../services/taskBuckets");
 
 const router = express.Router();
+const { transitionFutureTasksToTodoIfDue } = require("../services/taskBuckets");
 
 // GET all tasks for logged-in user
 router.get("/", requireAuth, async (req, res) => {
   try {
+    // Safety-net: ensure any 'future' tasks whose due date is today or earlier are transitioned to 'todo' for this user
+    try {
+      // run but don't block on heavy work; ensure completion before returning tasks
+      // eslint-disable-next-line no-await-in-loop
+      await transitionFutureTasksToTodoIfDue({ userId: req.user.userId });
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.error("Error running future->todo safety-net:", e);
+    }
     const { dateFrom, dateTo, dateField = "dueDate", bucketId } = req.query;
     
     // Ensure default bucket exists and migrate orphaned tasks
@@ -80,12 +90,24 @@ router.post("/", requireAuth, async (req, res) => {
       }
     }
 
+    // If dueDate is strictly after today (UTC), set status to 'future'
+    let finalStatus = status || "todo";
+    if (dueDate) {
+      const todayUtc = new Date();
+      todayUtc.setUTCHours(0, 0, 0, 0);
+      const selected = new Date(dueDate);
+      selected.setUTCHours(0, 0, 0, 0);
+      if (selected.getTime() > todayUtc.getTime()) {
+        finalStatus = "future";
+      }
+    }
+
     const task = await Task.create({
       userId: req.user.userId,
       bucketId: finalBucketId,
       title: String(title).trim(),
       description: String(description || "").trim(),
-      status: status || "todo",
+      status: finalStatus,
       priority: priority || "medium",
       dueDate: dueDate || null,
     });
@@ -113,6 +135,17 @@ router.put("/:taskId", requireAuth, async (req, res) => {
     if (status !== undefined) updateData.status = status;
     if (priority !== undefined) updateData.priority = priority;
     if (dueDate !== undefined) updateData.dueDate = dueDate;
+
+    // If dueDate is provided and is strictly after today (UTC), force status to 'future'
+    if (dueDate !== undefined && dueDate) {
+      const todayUtc = new Date();
+      todayUtc.setUTCHours(0, 0, 0, 0);
+      const selected = new Date(dueDate);
+      selected.setUTCHours(0, 0, 0, 0);
+      if (selected.getTime() > todayUtc.getTime()) {
+        updateData.status = "future";
+      }
+    }
 
     if (bucketId !== undefined) {
       if (!isValidObjectId(bucketId)) {

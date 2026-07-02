@@ -9,6 +9,9 @@ const taskRoutes = require("./routes/tasks");
 const bucketRoutes = require("./routes/buckets");
 const feedbackRoutes = require("./routes/feedback");
 const ocrRoutes = require("./routes/ocr");
+const attachmentsRoutes = require("./routes/attachments");
+// start scheduled jobs
+require("./jobs/futureTasksCron");
 dotenv.config();
 
 const app = express();
@@ -49,6 +52,7 @@ app.use("/auth", authRoutes);
 app.use("/workflows", workflowRoutes);
 app.use("/convert", convertRoutes);
 app.use("/tasks", taskRoutes);
+app.use("/api/tasks", attachmentsRoutes);
 app.use("/buckets", bucketRoutes);
 app.use("/feedback", feedbackRoutes);
 app.use("/api/ocr", ocrRoutes);

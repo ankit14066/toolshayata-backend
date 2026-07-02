@@ -8,7 +8,7 @@ const taskSchema = new mongoose.Schema(
     description: { type: String, default: "", trim: true },
     status: {
       type: String,
-      enum: ["todo", "in_progress", "completed"],
+      enum: ["future", "todo", "in_progress", "completed"],
       default: "todo",
     },
     priority: {
@@ -20,5 +20,16 @@ const taskSchema = new mongoose.Schema(
   },
   { timestamps: true }
 );
+
+// Virtual populate for attachments
+taskSchema.virtual("attachments", {
+  ref: "Attachment",
+  localField: "_id",
+  foreignField: "taskId",
+});
+
+// Ensure virtuals are included when converting to JSON
+taskSchema.set("toObject", { virtuals: true });
+taskSchema.set("toJSON", { virtuals: true });
 
 module.exports = mongoose.models.Task || mongoose.model("Task", taskSchema);
