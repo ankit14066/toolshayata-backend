@@ -9,6 +9,7 @@ const taskRoutes = require("./routes/tasks");
 const bucketRoutes = require("./routes/buckets");
 const feedbackRoutes = require("./routes/feedback");
 const ocrRoutes = require("./routes/ocr");
+const qnaRoutes = require("./routes/qna");
 const attachmentsRoutes = require("./routes/attachments");
 // start scheduled jobs
 require("./jobs/futureTasksCron");
@@ -57,6 +58,7 @@ app.use("/api/tasks", attachmentsRoutes);
 app.use("/buckets", bucketRoutes);
 app.use("/feedback", feedbackRoutes);
 app.use("/api/ocr", ocrRoutes);
+app.use("/api/qna", qnaRoutes);
 const fileShareRoutes = require("./routes/fileShare");
 app.use('/', fileShareRoutes);
 app.use((err, _req, res, _next) => {
