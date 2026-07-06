@@ -5,6 +5,7 @@ const attachmentSchema = new mongoose.Schema(
     taskId: { type: mongoose.Schema.Types.ObjectId, ref: "Task", required: true, index: true },
     fileName: { type: String, required: true },
     cloudinaryPublicId: { type: String, required: true },
+    cloudinaryResourceType: { type: String, default: "image" }, // "image", "video", or "raw"
     cloudinaryUrl: { type: String, required: true },
     fileType: { type: String },
     fileSize: { type: Number },

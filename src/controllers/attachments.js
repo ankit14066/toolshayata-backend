@@ -27,7 +27,7 @@ exports.getSignature = async (req, res) => {
 exports.saveAttachment = async (req, res) => {
   try {
     const { taskId } = req.params;
-    const { file_name, cloudinary_public_id, cloudinary_url, file_type, file_size, uploadedBy } = req.body;
+    const { file_name, cloudinary_public_id, cloudinary_resource_type, cloudinary_url, file_type, file_size, uploadedBy } = req.body;
 
     if (!cloudinary_public_id || !cloudinary_url || !file_name) {
       return res.status(400).json({ message: "Missing attachment data" });
@@ -37,6 +37,7 @@ exports.saveAttachment = async (req, res) => {
       taskId,
       fileName: file_name,
       cloudinaryPublicId: cloudinary_public_id,
+      cloudinaryResourceType: cloudinary_resource_type || "image",
       cloudinaryUrl: cloudinary_url,
       fileType: file_type,
       fileSize: file_size,
@@ -69,8 +70,14 @@ exports.deleteAttachment = async (req, res) => {
     const attachment = await Attachment.findById(attachmentId);
     if (!attachment) return res.status(404).json({ message: "Attachment not found" });
 
-    // Delete from Cloudinary
-    await cloudinary.uploader.destroy(attachment.cloudinaryPublicId, { resource_type: "auto" });
+    // Delete from Cloudinary — use the stored resource_type ("image", "video", or "raw")
+    // NOTE: Cloudinary's destroy() does NOT accept "auto" as resource_type.
+    const resourceType = attachment.cloudinaryResourceType || "image";
+    const destroyResult = await cloudinary.uploader.destroy(
+      attachment.cloudinaryPublicId,
+      { resource_type: resourceType }
+    );
+    console.log("Cloudinary destroy result:", destroyResult);
 
     await Attachment.deleteOne({ _id: attachmentId });
 
