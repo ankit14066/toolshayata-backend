@@ -79,13 +79,15 @@ router.post("/", upload.single("file"), async (req, res) => {
     const extractParagraphs = req.body.extractParagraphs === "true";
     const extractTables = req.body.extractTables === "true";
     const extractFields = req.body.extractFields === "true";
+    const extractWords = req.body.extractWords === "true";
 
     console.log(`OCR request — type: ${mimeType}, size: ${(req.file.size / 1024).toFixed(1)} KB, pages input: "${req.body.pages || "(blank)"}" → sending: "${pages ?? "omitted"}"`);
 
     const ocrSettings = { extract: true };
     if (extractParagraphs) ocrSettings.paragraphs = { json: true };
-    if (extractTables)     ocrSettings.table = { extract: true, include: true, filter: false };
-    if (extractFields)     ocrSettings.fields = { extract: true, model: "engine7" };
+    if (extractWords) ocrSettings.words = true;
+    if (extractTables) ocrSettings.table = { extract: true, include: true, filter: false };
+    if (extractFields) ocrSettings.fields = { extract: true, model: "engine7" };
 
     // Build settings — omit `pages` entirely if null (lets Azure use its default)
     const settings = { ocr: ocrSettings };
